@@ -12,6 +12,11 @@ from time import sleep
 from selenium.webdriver import ActionChains, DesiredCapabilities, Remote
 from selenium.webdriver.support.ui import WebDriverWait
 
+import urllib2
+
+XSS_SELECTOR = "script[id='xss']"
+XSS_BLOCK = "<script id='xss' ></script>"
+
 class parsed_request():
     method = "NONE"
     full_url = ""
@@ -35,6 +40,12 @@ class parsed_request():
 
     def get_full_url(self):
         return self.full_url
+
+    def get_uri(self):
+        return self.uri
+
+    def get_args(self):
+        return self.args
 
     def parse_args(self):
         if not self.args_line:
@@ -151,6 +162,10 @@ def parse_line(line):
 class selenium_scaner():
     links = dict()
 
+    current_page = ""
+    current_submit_button = 0
+    current_submit_input = 0
+
     def __init__(self):
         browser = os.environ.get('TTHA2BROWSER', 'CHROME')
 
@@ -160,8 +175,57 @@ class selenium_scaner():
         )
         self.driver.maximize_window()
 
+    def check_xss(self):
+        text_input_fields = self.wait_and_find_many(XSS_SELECTOR)
+        for i in text_input_fields:
+            print "XSS FOUND"
+
+    def check_page(self):
+        self.current_submit_button = -1
+        self.current_submit_input = -1
+
+        inputs_checked = False
+        submits_checked = False
+
+        while ((not inputs_checked) or (not submits_checked)):
+            text_input_fields = self.wait_and_find_many('input[type="text"]')
+            password_input_fields = self.wait_and_find_many('input[type="password"]')
+            text_areas = self.wait_and_find_many('textarea')
+            submit_inputs = self.wait_and_find_many('input[type="submit"]')
+            submit_buttons = self.wait_and_find_many('button[type="submit"]')
+
+            for i in text_input_fields:
+                i.send_keys(XSS_BLOCK)
+
+            for i in password_input_fields:
+                i.send_keys(XSS_BLOCK)
+
+            for i in text_areas:
+                i.send_keys(XSS_BLOCK)
+
+            inputs_checked = True
+            for i in submit_inputs:
+                if i > self.current_submit_input:
+                    self.current_submit_input = i
+                    inputs_checked = False
+                    i.click()
+
+            if inputs_checked == True:
+                submits_checked = True
+                for i in submit_buttons:
+                    if i >= self.current_submit_button:
+                        self.current_submit_button = i
+                        submits_checked = False
+                        i.click()
+
+            self.check_xss()
+            self.driver.get(self.current_page)
+
+
+
     def visit_page(self, target):
-        print target
+        print "visit " + target
+        self.current_page = target
         self.driver.get(target)
         results = self.wait_and_find_many("a[href]")
 
@@ -170,7 +234,10 @@ class selenium_scaner():
             if not (link in self.links):
                 self.links[link] = False
 
+        self.check_page()
+
         self.links[target] = True
+
 
     def scan_site_with_selenium(self, target):
         self.target = target
@@ -191,18 +258,72 @@ class selenium_scaner():
 
     def wait_and_find_many(self, targetName):
         # print ("looking for " + targetName)
-        results =  WebDriverWait(self.driver, 30, 0.1).until(
-           lambda d: d.find_elements_by_css_selector(targetName)
-        )
+
+        try:
+            results =  WebDriverWait(self.driver, 1, 0.2).until(
+               lambda d: d.find_elements_by_css_selector(targetName)
+            )
+        except Exception as exc:
+            results = []
         # print ("found " + str(len(results)))
         return results
-        
+
+class wget_post_checker():
+    target = ""
+
+    def __init__(self, target):
+        self.target = target
+        # browser = os.environ.get('TTHA2BROWSER', 'CHROME')
+
+        # self.driver = Remote(
+        #     command_executor='http://127.0.0.1:4444/wd/hub',
+        #     desired_capabilities=getattr(DesiredCapabilities, browser).copy()
+        # )
+        # self.driver.maximize_window()
+
+    def check_dict(self, targets_dict):
+        for i in targets_dict:
+
+            cur_target = targets_dict[i]
+            uri = cur_target.get_uri()
+            args = cur_target.get_args()
+            if len(args) > 0:
+                uri += "?"
+
+            j = 0
+            for i in args:
+                j += 1
+                uri += i
+                uri += "="
+                uri += args[i]
+                if j < len(args) - 1:
+                    uri += "&"
+
+            print "checking " + self.target + uri
+            try:
+                response = urllib2.urlopen(self.target + uri)
+                html = response.read()
+            except Exception as exc:
+                html = ""
+            if html.find(XSS_BLOCK) >= 0:
+                print "XSS FOUND"
+            # self.check_xss(html)
+            # cur_target.get_uri
+
+
+    # def check_xss(self, text_to_check):
+    #     new_line = "1"
+    #     while new_line:
+    #         new_line = text_to_check.readline()
+    #         if new_line.find(XSS_BLOCK):
+    #             print "XSS FOUND"
+
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         #call("ls", shell=True)
-        print "incorrect options, input only one option: target"
+        print "incorrect options, input only one option: target ip"
     else:
 
         file_path = "/tmp/xss_scaner_tcp.dump"
@@ -217,12 +338,17 @@ if __name__ == '__main__':
             # TODO set buffer max size to not save uselsess data
             call(["sudo tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + sys.argv[1] + " and dst port 80' > " + file_path], shell=True)
         
+        print "phase 1"
         scaner = selenium_scaner()
         scaner.scan_site_with_selenium("http://" + sys.argv[1])
         os.kill(pid, signal.SIGTERM)
 
 
+        print "phase 2"
         requests = parse_file(file_path)
+        post_checker = wget_post_checker("http://" + sys.argv[1])
+        post_checker.check_dict(requests)
+
         print requests
 
 
