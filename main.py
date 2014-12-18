@@ -14,24 +14,39 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 import urllib2
 
+import socket
+
+
 XSS_SELECTOR = "script[id='xss']"
-XSS_BLOCK = "<script id='xss' ></script>"
+XSS_BLOCK = "<script id='xss'> </script>"
+XSS_URL_BLOCK = "%3cscript+id%3d%27xss%27%3e+%3c%2fscript%3e"
+
+"""
+
+<html><body bgcolor='#cccccc'><title>XSS FUN!!</title><center><img src = 'dog.jpg'>
+<br><br>Hello <script id='xss'> </script>. whatchu wanna do now?<br></html>
+
+"""
 
 class parsed_request():
-    method = "NONE"
-    full_url = ""
-    uri = ""
-    args_line = ""
-    args = dict()
+    # method = "NONE"
+    # full_url = ""
+    # uri = ""
+    # args_line = ""
 
     def __init__(self, method, uri):
         self.method = method
         self.full_url = uri
+        self.args = dict()
+
         self.parse_uri(uri)
         self.parse_args()
+        #print self.args
 
     def parse_uri(self, uri):
+        #print uri
         uri_separator_position = uri.find("?")
+        self.args_line = ""
         if uri_separator_position >= 0:
             self.uri = uri[:uri_separator_position]
             self.args_line = uri[uri_separator_position+1:]
@@ -176,9 +191,25 @@ class selenium_scaner():
         self.driver.maximize_window()
 
     def check_xss(self):
-        text_input_fields = self.wait_and_find_many(XSS_SELECTOR)
-        for i in text_input_fields:
-            print "XSS FOUND"
+        problems_found = False
+        problems = self.wait_and_find_many(XSS_SELECTOR)
+        for i in problems:
+            problems_found = True
+            print "____------===WARNING===------____"
+            print "------high chance XSS found------"
+            print "---xss script was found in DOM---"
+            print "---outputing page source code----"
+            print self.driver.page_source
+            break
+        if not problems_found:
+            if self.driver.page_source.find(XSS_BLOCK) >= 0:
+                print "____------===WARNING===------____"
+                print "------high chance XSS found------"
+                print "---xss script was found in page---"
+                print "---outputing page source code----"
+                print self.driver.page_source
+        pass
+
 
     def check_page(self):
         self.current_submit_button = -1
@@ -285,28 +316,42 @@ class wget_post_checker():
         for i in targets_dict:
 
             cur_target = targets_dict[i]
-            uri = cur_target.get_uri()
             args = cur_target.get_args()
-            if len(args) > 0:
-                uri += "?"
 
-            j = 0
-            for i in args:
-                j += 1
-                uri += i
-                uri += "="
-                uri += args[i]
-                if j < len(args) - 1:
-                    uri += "&"
 
-            print "checking " + self.target + uri
-            try:
-                response = urllib2.urlopen(self.target + uri)
-                html = response.read()
-            except Exception as exc:
-                html = ""
-            if html.find(XSS_BLOCK) >= 0:
-                print "XSS FOUND"
+            k = 0
+            while k < len(args):
+                uri = cur_target.get_uri()
+                if len(args) > 0:
+                    uri += "?"
+
+                j = 0
+                for i in args:
+                    uri += i
+                    uri += "="
+                    if k == j:
+                        uri += XSS_URL_BLOCK
+                    else:
+                        uri += args[i]
+                    if j < len(args):
+                        uri += "&"
+                    j += 1
+
+                print "checking " + "http://" + self.target + uri
+                try:
+                    response = urllib2.urlopen("http://" + self.target + uri)
+                    html = response.read()
+                except Exception as exc:
+                    html = ""
+                print html
+                if html.find(XSS_BLOCK) >= 0:
+                    print "____------===WARNING===------____"
+                    print "------high chance XSS found------"
+                    print "---xss script was found in page---"
+                    print "---outputing page source code----"
+                    print html
+
+                k += 1
             # self.check_xss(html)
             # cur_target.get_uri
 
@@ -318,16 +363,49 @@ class wget_post_checker():
     #         if new_line.find(XSS_BLOCK):
     #             print "XSS FOUND"
 
+def getHost(target):
+    # /print "target: " + target
+    separator_position = target.find("/")
+    host = target
+
+    if separator_position > 0:
+        host = target[:separator_position]
+        # print "cutted"
+    return host
+
+def getIp(target):
+    # /print "target: " + target
+    separator_position = target.find("/")
+    host = target
+
+    if separator_position > 0:
+        host = target[:separator_position]
+        # print "cutted"
+
+    # print "result host:" + host
+    result = socket.gethostbyname(host)
+    return result;
+    # print "ip: " + result
 
 
 if __name__ == '__main__':
+
+    # print zlib.compress('echo "hell" | nc 10.20.2.253 8182')
+    # print zlib.decompress("4f9d09eb344f6")
+
+
     if len(sys.argv) != 2:
         #call("ls", shell=True)
         print "incorrect options, input only one option: target ip"
     else:
+        target_host = getHost(sys.argv[1])
+        target_ip = getIp(target_host)
 
         file_path = "/tmp/xss_scaner_tcp.dump"
 
+        print "----------------=================================----------------"
+        print "-------------================== Phase 1 ============-------------"
+        print "----------------=================================----------------"
         pid = 0
         try:
             pid = os.fork()
@@ -336,20 +414,22 @@ if __name__ == '__main__':
 
         if pid == 0:
             # TODO set buffer max size to not save uselsess data
-            call(["sudo tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + sys.argv[1] + " and dst port 80' > " + file_path], shell=True)
+            call(["sudo tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + file_path], shell=True)
         
-        print "phase 1"
         scaner = selenium_scaner()
         scaner.scan_site_with_selenium("http://" + sys.argv[1])
         os.kill(pid, signal.SIGTERM)
 
 
-        print "phase 2"
+        print "----------------=================================----------------"
+        print "-------------================== Phase 2 ============-------------"
+        print "----------------=================================----------------"
         requests = parse_file(file_path)
-        post_checker = wget_post_checker("http://" + sys.argv[1])
+        # post_checker = wget_post_checker("http://" + sys.argv[1])
+        post_checker = wget_post_checker(target_host)
         post_checker.check_dict(requests)
 
-        print requests
+        # print requests
 
 
     # requests = parse_file("/home/trizalio/test.dump")
