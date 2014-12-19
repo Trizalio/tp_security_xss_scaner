@@ -260,9 +260,9 @@ class selenium_scaner():
                     not_all_links_checked = True
                     if self.visit_page(i):
                         break
+        self.stop_selenium()
 
-
-
+    def stop_selenium(self):
         self.driver.quit()
 
 
@@ -441,13 +441,33 @@ if __name__ == '__main__':
     try:
         pid = os.fork()
     except OSError as exc:
-        raise Exception("%s [%d]" % (exc.strerror, exc.errno))
+        file_logger().trace("Fork failed\n"+
+                            "Exception: " + str(exc), LOG_ERROR)
+        sys.exit()
 
     if pid == 0:
         call(["tcpdump -i wlan0 -n -v -s 1024 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + dump_file_path], shell=True)
     
-    scaner = selenium_scaner()
-    scaner.scan_site_with_selenium("http://" + target_url)
+    try:
+        scaner = selenium_scaner()
+    except Exception as exc:
+        file_logger().trace("Selenium initialization failed\n"+
+                            "Please, check your selenium webdriver\n"+
+                            "Exception: " + str(exc), LOG_ERROR)
+        sleep(1)
+        os.kill(pid, signal.SIGTERM)
+        sys.exit()
+        # raise Exception("%s [%d]" % (exc.strerror, exc.errno))
+
+    try:
+        scaner.scan_site_with_selenium("http://" + target_url)
+    except Exception as exc:
+        file_logger().trace("Selenium scan failed\n"+
+                            "Exception: " + str(exc), LOG_ERROR)
+        sleep(1)
+        os.kill(pid, signal.SIGTERM)
+        sys.exit()
+
     os.kill(pid, signal.SIGTERM)
 
 
