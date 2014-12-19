@@ -21,6 +21,14 @@ XSS_SELECTOR = "script[id='xss']"
 XSS_BLOCK = "<script id='xss'> </script>"
 XSS_URL_BLOCK = "%3cscript+id%3d%27xss%27%3e+%3c%2fscript%3e"
 
+
+
+LOG_ERROR = 1
+LOG_XSS = 2
+LOG_WARNING = 3
+LOG_PROGRESS = 4
+LOG_LOG = 5
+
 """
 
 <html><body bgcolor='#cccccc'><title>XSS FUN!!</title><center><img src = 'dog.jpg'>
@@ -195,19 +203,19 @@ class selenium_scaner():
         problems = self.wait_and_find_many(XSS_SELECTOR)
         for i in problems:
             problems_found = True
-            print "____------===WARNING===------____"
-            print "------high chance XSS found------"
-            print "---xss script was found in DOM---"
-            print "---outputing page source code----"
-            print self.driver.page_source
+            file_logger().trace("Most likely XSS found.\n"+
+                        "Xss script was found in page\n"+
+                        "Outputing page source code to file", LOG_XSS)
+            file_logger().print_to_file(self.current_page + "\n" + self.driver.page_source + "\n\n")
+            # print self.driver.page_source
             break
         if not problems_found:
             if self.driver.page_source.find(XSS_BLOCK) >= 0:
-                print "____------===WARNING===------____"
-                print "------high chance XSS found------"
-                print "---xss script was found in page---"
-                print "---outputing page source code----"
-                print self.driver.page_source
+                file_logger().trace("Potential XSS found.\n"+
+                            "Xss script was found in page\n"+
+                            "Outputing page source code to file", LOG_XSS)
+                file_logger().print_to_file(self.current_page + "\n" + self.driver.page_source + "\n\n")
+
         pass
 
 
@@ -255,7 +263,8 @@ class selenium_scaner():
 
 
     def visit_page(self, target):
-        print "visit " + target
+        found_new_page = False
+        file_logger().trace("visit " + target, LOG_PROGRESS)
         self.current_page = target
         self.driver.get(target)
         results = self.wait_and_find_many("a[href]")
@@ -263,11 +272,13 @@ class selenium_scaner():
         for i in results:
             link = i.get_attribute("href")
             if not (link in self.links):
+                found_new_page = True
                 self.links[link] = False
 
         self.check_page()
 
         self.links[target] = True
+        return found_new_page
 
 
     def scan_site_with_selenium(self, target):
@@ -280,7 +291,9 @@ class selenium_scaner():
             for i in self.links:
                 if self.links[i] == False:
                     not_all_links_checked = True
-                    self.visit_page(i)
+                    if self.visit_page(i):
+                        break
+
 
 
         self.driver.quit()
@@ -289,9 +302,9 @@ class selenium_scaner():
 
     def wait_and_find_many(self, targetName):
         # print ("looking for " + targetName)
-
+        # results = self.driver.find_elements_by_css_selector(targetName)
         try:
-            results =  WebDriverWait(self.driver, 1, 0.2).until(
+            results =  WebDriverWait(self.driver, 0.1, 0.1).until(
                lambda d: d.find_elements_by_css_selector(targetName)
             )
         except Exception as exc:
@@ -336,20 +349,25 @@ class wget_post_checker():
                     if j < len(args):
                         uri += "&"
                     j += 1
+                url = "http://" + self.target + uri
 
-                print "checking " + "http://" + self.target + uri
+                file_logger().trace("checking " + url, LOG_PROGRESS)
+
                 try:
-                    response = urllib2.urlopen("http://" + self.target + uri)
+                    response = urllib2.urlopen(url)
                     html = response.read()
                 except Exception as exc:
+                    file_logger().trace("Unable to get page: " + url, LOG_WARNING)
                     html = ""
-                print html
+                # print html
                 if html.find(XSS_BLOCK) >= 0:
-                    print "____------===WARNING===------____"
-                    print "------high chance XSS found------"
-                    print "---xss script was found in page---"
-                    print "---outputing page source code----"
-                    print html
+
+                    file_logger().trace("Potential XSS found.\n"+
+                                "Xss script was found in page\n"+
+                                "Outputing page source code to file", LOG_XSS)
+
+                    file_logger().print_to_file(url + "\n" + html + "\n\n")
+                    # print html
 
                 k += 1
             # self.check_xss(html)
@@ -363,119 +381,145 @@ class wget_post_checker():
     #         if new_line.find(XSS_BLOCK):
     #             print "XSS FOUND"
 
-def getHost(target):
-    # /print "target: " + target
-    separator_position = target.find("/")
-    host = target
+def get_url(target):
+    protocol_string = "http://"
+    protocol_position = target.find(protocol_string)
+    url = target
+    if protocol_position >= 0:
+        url = target[protocol_position+len(protocol_string):]
 
-    if separator_position > 0:
-        host = target[:separator_position]
-        # print "cutted"
+    return url
+def get_host(target):
+    url = get_url(target)
+
+    host = url
+    separator_position = url.find("/")
+    if separator_position >= 0:
+        host = url[:separator_position]
     return host
 
-def getIp(target):
-    # /print "target: " + target
-    separator_position = target.find("/")
-    host = target
-
-    if separator_position > 0:
-        host = target[:separator_position]
-        # print "cutted"
-
-    # print "result host:" + host
-    result = socket.gethostbyname(host)
+def get_ip(target):
+    host = get_host(target)
+    try:
+        result = socket.gethostbyname(host)
+    except Exception as exc:
+        file_logger().trace("Failed to resolve address", LOG_ERROR)
+        sys.exit()
     return result;
-    # print "ip: " + result
+
+
+class file_logger():
+    file_descriptor = None
+    verbosity_level = 0
+
+    def print_to_file(self, text):
+        file_logger().trace(text, LOG_LOG)
+        file_logger.file_descriptor.write(text)
+
+    def open_file(self, file_name):
+        file_logger.file_descriptor = open(file_name, 'w')
+
+    def close_file(self):
+        file_logger.file_descriptor.close()
+
+    def trace(self, text, verbosity_level = 5):
+        if file_logger.verbosity_level >= verbosity_level:
+            if verbosity_level == 1:
+                print "____------====ERROR====------____"
+            elif verbosity_level == 2:
+                print "____------=====XSS=====------____"
+            elif verbosity_level == 3:
+                print "____------===WARNING===------____"
+            elif verbosity_level == 4:
+                print "____------===PROGRESS===-----____"
+            elif verbosity_level == 5:
+                print "____------=====LOG=====------____"
+            print text
+
+    def set_verbosity_level(self, verbosity_level):
+        temp_verbosity_level = 3;
+        parse_ok = True
+        try:
+            temp_verbosity_level = int(verbosity_level)
+            if temp_verbosity_level > 5 or temp_verbosity_level < 0:
+                temp_verbosity_level = 3
+                parse_ok = False
+        except Exception as exc:
+            parse_ok = False
+
+        file_logger.verbosity_level = temp_verbosity_level
+
+        if not parse_ok:
+            file_logger().trace("Wrong verbosity level\n"+
+                        "Possible values:\n"+
+                        "0, nothing\n"+
+                        "1, errors\n"+
+                        "2, xss\n"+
+                        "3, warnings\n"+
+                        "4, progress\n"+
+                        "5, file output", LOG_WARNING)
+
+        file_logger().trace("Verbosity level set to " + str(file_logger.verbosity_level), LOG_WARNING)
+
 
 
 if __name__ == '__main__':
+    # file_logger().trace("-----------", 10)
+    # 0 - nothing
+    # 1 - errors
+    # 2 - xss
+    # 3 - warnings
+    # 4 - progress
+    # 5 - everything
+    if len(sys.argv) < 3:
+        file_logger().set_verbosity_level(LOG_ERROR)
+        file_logger().trace("Incorrect options amount\n"+
+                                "Required options:\n"+
+                                "1. Target url\n"+
+                                "2. Output file name/path\n"+
+                                "Possible options:\n"+
+                                "3. Verbosity level [0-5]", LOG_ERROR)
+        sys.exit()
 
-    # print zlib.compress('echo "hell" | nc 10.20.2.253 8182')
-    # print zlib.decompress("4f9d09eb344f6")
+    target_url = get_url(sys.argv[1])
+    target_host = get_host(sys.argv[1])
+    target_ip = get_ip(sys.argv[1])
 
-
-    if len(sys.argv) != 2:
-        #call("ls", shell=True)
-        print "incorrect options, input only one option: target ip"
+    dump_file_path = "xss_scaner_tcp.dump"
+    output_file_path = sys.argv[2]
+    file_logger().open_file(output_file_path)
+    if len(sys.argv) == 4:
+        file_logger().set_verbosity_level(sys.argv[3])
     else:
-        target_host = getHost(sys.argv[1])
-        target_ip = getIp(target_host)
+        file_logger().set_verbosity_level(3)
 
-        file_path = "/tmp/xss_scaner_tcp.dump"
+    file_logger().trace(
+    "____------=============------____\n"+
+    "____------== Phase 1 ==------____\n"+
+    "____------=============------____", LOG_PROGRESS)
+    pid = 0
+    try:
+        pid = os.fork()
+    except OSError as exc:
+        raise Exception("%s [%d]" % (exc.strerror, exc.errno))
 
-        print "----------------=================================----------------"
-        print "-------------================== Phase 1 ============-------------"
-        print "----------------=================================----------------"
-        pid = 0
-        try:
-            pid = os.fork()
-        except OSError as exc:
-            raise Exception("%s [%d]" % (exc.strerror, exc.errno))
-
-        if pid == 0:
-            # TODO set buffer max size to not save uselsess data
-            call(["sudo tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + file_path], shell=True)
-        
-        scaner = selenium_scaner()
-        scaner.scan_site_with_selenium("http://" + sys.argv[1])
-        os.kill(pid, signal.SIGTERM)
+    if pid == 0:
+        # TODO set buffer max size to not save uselsess data
+        call(["tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + dump_file_path], shell=True)
+    
+    scaner = selenium_scaner()
+    scaner.scan_site_with_selenium("http://" + target_url)
+    os.kill(pid, signal.SIGTERM)
 
 
-        print "----------------=================================----------------"
-        print "-------------================== Phase 2 ============-------------"
-        print "----------------=================================----------------"
-        requests = parse_file(file_path)
-        # post_checker = wget_post_checker("http://" + sys.argv[1])
-        post_checker = wget_post_checker(target_host)
-        post_checker.check_dict(requests)
+    file_logger().trace(
+    "____------=============------____\n"+
+    "____------== Phase 2 ==------____\n"+
+    "____------=============------____", LOG_PROGRESS)
 
-        # print requests
-
-
-    # requests = parse_file("/home/trizalio/test.dump")
-    # print len(sys.argv)
-    # print sys.argv
-    # files = os.listdir(".")
-    # print files
-    # dump_file = open("/home/trizalio/test.dump")
-
-    # current_request_type = "NONE"
-
-    # current_line = find_request(dump_file)
-
-    # http_tag_position = -1
-    # current_line = ""
-    # while http_tag_position < 0:
-    #     current_line = dump_file.readline()
-    #     if not current_line:
-    #         break
-    #     http_tag_position = current_line.find("HTTP/1.1")
-
-    # if current_line.find("GET") >= 0:
-    #     current_request_type = "GET"
-    # elif current_line.find("POST") >= 0:
-    #     current_request_type = "POST"
-    # else:
-    #     current_request_type = "UNDIFINED"
-
-    # print current_line
-    # print current_request_type
-
-    # while current_line:
-
-    # for line in dump_file:
-    #     print line
-
-    # print dump_file.readline()
-
-    # commandCoded = base64.b64encode(sys.argv[1])
-    # params = urllib.urlencode({'stalk': commandCoded})
-    # headers = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/plain"}
-    # conn = httplib.HTTPConnection("10.20.2.181")
-    # conn.request("POST", "/?mod=inc/mgrz&asp=mypass", params, headers)
-    # response = conn.getresponse()
-    # print response.status, response.reason
-    # data = response.read()
-    # conn.close()
+    requests = parse_file(dump_file_path)
+    post_checker = wget_post_checker(target_host)
+    post_checker.check_dict(requests)
+    file_logger().close_file()
 
     pass
