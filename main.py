@@ -29,18 +29,8 @@ LOG_WARNING = 3
 LOG_PROGRESS = 4
 LOG_LOG = 5
 
-"""
-
-<html><body bgcolor='#cccccc'><title>XSS FUN!!</title><center><img src = 'dog.jpg'>
-<br><br>Hello <script id='xss'> </script>. whatchu wanna do now?<br></html>
-
-"""
 
 class parsed_request():
-    # method = "NONE"
-    # full_url = ""
-    # uri = ""
-    # args_line = ""
 
     def __init__(self, method, uri):
         self.method = method
@@ -49,10 +39,8 @@ class parsed_request():
 
         self.parse_uri(uri)
         self.parse_args()
-        #print self.args
 
     def parse_uri(self, uri):
-        #print uri
         uri_separator_position = uri.find("?")
         self.args_line = ""
         if uri_separator_position >= 0:
@@ -100,16 +88,12 @@ class parsed_request():
 
 
     def __repr__(self):
-        # print self.args
         return self.method + " " + self.uri + " " + self.args_line + " " + str(self.args)
     def __str__(self):
-        # print self.args
         return self.method + " " + self.uri + " " + self.args_line + " " + str(self.args)
 
 
 def parse_file(file_name):
-    # print "parse_file"
-    # print file_name
     opened_file = open(file_name)
     requests = dict()
     new_request = get_request_from_file(opened_file)
@@ -123,8 +107,6 @@ def parse_file(file_name):
 
 
 def get_request_from_file(opened_file):
-    # print "get_request_from_file"
-    # print opened_file
     request_line = find_request(opened_file)
     if not request_line:
         return None
@@ -133,8 +115,6 @@ def get_request_from_file(opened_file):
 
 
 def find_request(opened_file):
-    # print "find_request"
-    # print opened_file
     http_tag_position = -1
     current_line = ""
     while http_tag_position < 0:
@@ -145,8 +125,6 @@ def find_request(opened_file):
     return current_line
 
 def parse_line(line):
-    # print "find_request"
-    # print line
     request_method = "NONE"
     request_method_position = -1;
     if line.find("GET") >= 0:
@@ -160,27 +138,17 @@ def parse_line(line):
         return None
 
     request_line = line[request_method_position:]
-    # print "request_line " + "'" + request_line + "'"
 
     request_uri_start_position = request_line.find(" ");
-    # print "request_uri_start_position", request_uri_start_position
 
     request_line_from_uri = request_line[(request_uri_start_position+1):]
 
     request_uri_end_position = request_line_from_uri.find(" ");
-    # print "request_line_from_uri" + "'" + request_line_from_uri + "'"
-    # print "request_uri_end_position", request_uri_end_position
 
     return parsed_request(request_method, request_line_from_uri[:request_uri_end_position])
 
 
-# class link():
-#     visited = False
-#     uri = ""
 
-#     def __init__(self, uri):
-#         self.uri = uri
-#         self.visited = False
 
 class selenium_scaner():
     links = dict()
@@ -207,7 +175,6 @@ class selenium_scaner():
                         "Xss script was found in page\n"+
                         "Outputing page source code to file", LOG_XSS)
             file_logger().print_to_file(self.current_page + "\n" + self.driver.page_source + "\n\n")
-            # print self.driver.page_source
             break
         if not problems_found:
             if self.driver.page_source.find(XSS_BLOCK) >= 0:
@@ -297,19 +264,15 @@ class selenium_scaner():
 
 
         self.driver.quit()
-        # sleep(5)
 
 
     def wait_and_find_many(self, targetName):
-        # print ("looking for " + targetName)
-        # results = self.driver.find_elements_by_css_selector(targetName)
         try:
             results =  WebDriverWait(self.driver, 0.1, 0.1).until(
                lambda d: d.find_elements_by_css_selector(targetName)
             )
         except Exception as exc:
             results = []
-        # print ("found " + str(len(results)))
         return results
 
 class wget_post_checker():
@@ -317,13 +280,7 @@ class wget_post_checker():
 
     def __init__(self, target):
         self.target = target
-        # browser = os.environ.get('TTHA2BROWSER', 'CHROME')
 
-        # self.driver = Remote(
-        #     command_executor='http://127.0.0.1:4444/wd/hub',
-        #     desired_capabilities=getattr(DesiredCapabilities, browser).copy()
-        # )
-        # self.driver.maximize_window()
 
     def check_dict(self, targets_dict):
         for i in targets_dict:
@@ -359,7 +316,6 @@ class wget_post_checker():
                 except Exception as exc:
                     file_logger().trace("Unable to get page: " + url, LOG_WARNING)
                     html = ""
-                # print html
                 if html.find(XSS_BLOCK) >= 0:
 
                     file_logger().trace("Potential XSS found.\n"+
@@ -367,19 +323,10 @@ class wget_post_checker():
                                 "Outputing page source code to file", LOG_XSS)
 
                     file_logger().print_to_file(url + "\n" + html + "\n\n")
-                    # print html
 
                 k += 1
-            # self.check_xss(html)
-            # cur_target.get_uri
 
 
-    # def check_xss(self, text_to_check):
-    #     new_line = "1"
-    #     while new_line:
-    #         new_line = text_to_check.readline()
-    #         if new_line.find(XSS_BLOCK):
-    #             print "XSS FOUND"
 
 def get_url(target):
     protocol_string = "http://"
@@ -464,13 +411,6 @@ class file_logger():
 
 
 if __name__ == '__main__':
-    # file_logger().trace("-----------", 10)
-    # 0 - nothing
-    # 1 - errors
-    # 2 - xss
-    # 3 - warnings
-    # 4 - progress
-    # 5 - everything
     if len(sys.argv) < 3:
         file_logger().set_verbosity_level(LOG_ERROR)
         file_logger().trace("Incorrect options amount\n"+
@@ -485,7 +425,7 @@ if __name__ == '__main__':
     target_host = get_host(sys.argv[1])
     target_ip = get_ip(sys.argv[1])
 
-    dump_file_path = "./tmp/xss_scaner_tcp.dump"
+    dump_file_path = "./xss_scaner_tcp.dump"
     output_file_path = sys.argv[2]
     file_logger().open_file(output_file_path)
     if len(sys.argv) == 4:
@@ -504,7 +444,6 @@ if __name__ == '__main__':
         raise Exception("%s [%d]" % (exc.strerror, exc.errno))
 
     if pid == 0:
-        # TODO set buffer max size to not save uselsess data
         call(["tcpdump -i wlan0 -n -v -s 1024 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + dump_file_path], shell=True)
     
     scaner = selenium_scaner()
