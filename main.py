@@ -485,7 +485,7 @@ if __name__ == '__main__':
     target_host = get_host(sys.argv[1])
     target_ip = get_ip(sys.argv[1])
 
-    dump_file_path = "xss_scaner_tcp.dump"
+    dump_file_path = "./tmp/xss_scaner_tcp.dump"
     output_file_path = sys.argv[2]
     file_logger().open_file(output_file_path)
     if len(sys.argv) == 4:
@@ -505,7 +505,7 @@ if __name__ == '__main__':
 
     if pid == 0:
         # TODO set buffer max size to not save uselsess data
-        call(["tcpdump -i wlan0 -n -v -s 0 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + dump_file_path], shell=True)
+        call(["tcpdump -i wlan0 -n -v -s 1024 -A 'tcp and dst host " + target_ip + " and dst port 80' > " + dump_file_path], shell=True)
     
     scaner = selenium_scaner()
     scaner.scan_site_with_selenium("http://" + target_url)
